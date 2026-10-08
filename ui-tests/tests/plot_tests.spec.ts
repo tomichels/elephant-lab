@@ -1,20 +1,6 @@
-import { test, expect, Page } from '@playwright/test';
+import { test, expect } from '@playwright/test';
+import { ensureElephantLabActive, expandAllContainers, expectTreeRowVisible, openElephantLab, shutdownAllKernels, treeRow, SELECTED } from './helpers';
 // TODO: Move other plot tests here as well
-
-async function ensureElephantLabActive(page: Page) {
-  const elephantLabTab = page.getByRole('tab', { name: 'Elephant Lab', exact: true });
-
-  if (await elephantLabTab.count() === 0) {
-    throw new Error('Elephant Lab tab not found - extension may not be loaded');
-  }
-
-  if (await elephantLabTab.getAttribute('aria-selected') !== 'true') {
-    await elephantLabTab.click();
-    await page.waitForTimeout(300);
-  }
-
-  await expect(elephantLabTab).toHaveAttribute('aria-selected', 'true', { timeout: 3000 });
-}
 
 // Helper function to capture plot data for comparison
 async function getPlotData(plotContainer: any) {
@@ -25,9 +11,10 @@ async function getPlotData(plotContainer: any) {
         numTraces: el.data.length,
         xAxisTitle: el.layout?.xaxis?.title?.text || '',
         yAxisTitle: el.layout?.yaxis?.title?.text || '',
-        // Capture actual data points
-        firstTraceXLength: el.data?.[0]?.x?.length || 0,
-        firstTraceYLength: el.data?.[0]?.y?.length || 0,
+        // Capture actual data points. plotly.py >= 6 sends numpy arrays base64-encoded
+        // ({dtype, bdata}) in el.data, so read the decoded arrays from el._fullData.
+        firstTraceXLength: (el._fullData?.[0] ?? el.data?.[0])?.x?.length || 0,
+        firstTraceYLength: (el._fullData?.[0] ?? el.data?.[0])?.y?.length || 0,
         // Get marker/line colors that might change with Dark mode
         firstTraceColor: el.data?.[0]?.marker?.color || el.data?.[0]?.line?.color || 'unknown',
       };
@@ -73,6 +60,7 @@ test.describe('Elephant Lab: Explore Tab Toggles', () => {
     // 1. Navigate to JupyterLab
     await page.goto('http://localhost:8888/lab?reset');
     await page.waitForSelector('#jupyterlab-splash', { state: 'detached', timeout: 30000 });
+    await shutdownAllKernels(page);
 
     // 2. Wait for kernel to be ready
     await page.waitForTimeout(1000);
@@ -168,7 +156,7 @@ print("Created:", test_block.name)
     await firstCell.click();
 
     await page.evaluate(async () => {
-      await window.jupyterapp.commands.execute('notebook:run-cell-and-select-next');
+      void window.jupyterapp.commands.execute('notebook:run-cell-and-select-next');
     });
 
     // Wait for output
@@ -176,22 +164,14 @@ print("Created:", test_block.name)
       const outputArea = firstCell.locator('.jp-OutputArea-child').first();
       await expect(outputArea).toBeVisible({ timeout: 2000 });
       await expect(outputArea).toContainText('Created: TestBlock', { timeout: 2000 });
-    }).toPass({ timeout: 30000 });
+    }).toPass({ timeout: 60000 });
 
     // 5. Activate Elephant Lab sidebar
-    await page.evaluate(async () => {
-      const commands = window.jupyterapp.commands.listCommands();
-      const cmdId = commands.find(id => id.toLowerCase().includes('elephant-lab'));
-      if (cmdId) await window.jupyterapp.commands.execute(cmdId);
-    });
-
-    await ensureElephantLabActive(page);
+    await openElephantLab(page);
 
     // 6. Ensure tree is populated
-    const treeWidget = page.getByRole('tree');
-    await treeWidget.waitFor({ state: 'visible', timeout: 10000 });
-    const treeNode = treeWidget.getByRole('treeitem').filter({ hasText: 'TestBlock' });
-    await expect(treeNode).toBeVisible({ timeout: 10000 });
+    await expectTreeRowVisible(page, treeRow(page, 'TestBlock'));
+    await expandAllContainers(page);
   });
 
   // Clean up after each test
@@ -199,7 +179,7 @@ print("Created:", test_block.name)
     const rightPanel = page.locator('#elephant-lab-right-panel');
 
     const darkToggle = rightPanel.getByRole('button', { name: /Dark/i }).first();
-    const darkPressed = await darkToggle.getAttribute('aria-pressed');
+    const darkPressed = await darkToggle.getAttribute('aria-pressed', { timeout: 2000 }).catch(() => null);
     if (darkPressed === 'true') {
       await darkToggle.click();
       await page.waitForTimeout(300);
@@ -207,7 +187,7 @@ print("Created:", test_block.name)
 
     // Reset Overlap mode
     const overlapToggle = rightPanel.getByRole('button', { name: /Overlap/i }).first();
-    const overlapPressed = await overlapToggle.getAttribute('aria-pressed');
+    const overlapPressed = await overlapToggle.getAttribute('aria-pressed', { timeout: 2000 }).catch(() => null);
     if (overlapPressed === 'true') {
       await overlapToggle.click();
       await page.waitForTimeout(300);
@@ -215,7 +195,7 @@ print("Created:", test_block.name)
 
     // Reset Zero Based mode
     const zeroBasedToggle = rightPanel.getByRole('button', { name: /Zero Based/i }).first();
-    const zeroBasedPressed = await zeroBasedToggle.getAttribute('aria-pressed');
+    const zeroBasedPressed = await zeroBasedToggle.getAttribute('aria-pressed', { timeout: 2000 }).catch(() => null);
     if (zeroBasedPressed === 'true') {
       await zeroBasedToggle.click();
       await page.waitForTimeout(300);
@@ -229,8 +209,7 @@ print("Created:", test_block.name)
     const rightPanel = page.locator('#elephant-lab-right-panel');
 
     // 1. Select an AnalogSignal node
-    const treeContainer = rightPanel.locator('div[role="tree"]');
-    const analogSignalNode = treeContainer.locator('[role="treeitem"]').filter({ hasText: /analogsignal/i }).first();
+    const analogSignalNode = treeRow(page, 'my analogsignal').first();
 
     await analogSignalNode.scrollIntoViewIfNeeded();
     await analogSignalNode.click();
@@ -275,8 +254,7 @@ print("Created:", test_block.name)
     const rightPanel = page.locator('#elephant-lab-right-panel');
 
     // 1. Select an AnalogSignal node
-    const treeContainer = rightPanel.locator('div[role="tree"]');
-    const analogSignalNode = treeContainer.locator('[role="treeitem"]').filter({ hasText: /analogsignal/i }).first();
+    const analogSignalNode = treeRow(page, 'my analogsignal').first();
 
     await analogSignalNode.scrollIntoViewIfNeeded();
     await analogSignalNode.click();
@@ -334,8 +312,7 @@ print("Created:", test_block.name)
     const rightPanel = page.locator('#elephant-lab-right-panel');
 
     // 1. Select an AnalogSignal node
-    const treeContainer = rightPanel.locator('div[role="tree"]');
-    const analogSignalNode = treeContainer.locator('[role="treeitem"]').filter({ hasText: /analogsignal/i }).first();
+    const analogSignalNode = treeRow(page, 'my analogsignal').first();
 
     await analogSignalNode.scrollIntoViewIfNeeded();
     await analogSignalNode.click();
@@ -369,12 +346,12 @@ print("Created:", test_block.name)
     const newPressed = await zeroBasedToggle.getAttribute('aria-pressed');
     expect(newPressed).not.toBe(initialPressed);
 
-    const newPlotData = await getPlotData(plotContainer);
-
-    if (initialPlotData.source === 'plotly' && newPlotData.source === 'plotly') {
-      // Verify the data is still there
-      expect(newPlotData.firstTraceXLength).toBeGreaterThan(0);
-      expect(newPlotData.firstTraceYLength).toBeGreaterThan(0);
+    if (initialPlotData.source === 'plotly') {
+      // Verify the data is still there once the plot has re-rendered
+      await expect.poll(async () => {
+        const data = await getPlotData(plotContainer);
+        return Math.min(data.firstTraceXLength ?? 0, data.firstTraceYLength ?? 0);
+      }, { timeout: 10000 }).toBeGreaterThan(0);
     }
 
     // 7. Verify plot is still visible and re-rendered
@@ -389,16 +366,14 @@ print("Created:", test_block.name)
     await ensureElephantLabActive(page);
   
     // 1. Select the "ImageSequence" node in the tree
-    const imagesequenceNode = page.locator('#elephant-lab-right-panel')
-                               .locator('[role="treeitem"]', { hasText: 'my imagesequence' })
-                               .first();
+    const imagesequenceNode = treeRow(page, 'my imagesequence').first();
   
     await expect(async () => {
       await imagesequenceNode.waitFor({ state: 'visible', timeout: 3000 });
       await imagesequenceNode.click({ timeout: 3000 });
     }).toPass({ timeout: 10000 });
     
-    await expect(imagesequenceNode).toHaveAttribute('aria-selected', 'true', { timeout: 5000 });
+    await expect(imagesequenceNode).toHaveClass(SELECTED, { timeout: 5000 });
     await page.waitForTimeout(500);
   
     // 2. Switch to the Explore tab
@@ -424,13 +399,16 @@ print("Created:", test_block.name)
     await optionsButton.click();
     await page.waitForTimeout(800);
   
-    // 5. Change the colormap using the SELECT element (not the dropdown menu!)
-    const colormapSelect = rightPanel.locator('select').first();
-    
-    // Use selectOption for standard HTML select
-    await colormapSelect.selectOption({ label: 'Turbo' });
+    // 5. Change the colormap via the "Color Grade" dropdown
+    const colorGradeRow = rightPanel.locator('.jp-rawplot-row', { hasText: 'Color Grade' });
+    await colorGradeRow.locator('.jp-collapsible-select-button').click();
+    const turboItem = colorGradeRow.locator('.jp-collapsible-select-item', { hasText: /^Turbo$/ });
+    if (!(await turboItem.isVisible())) {
+      await colorGradeRow.locator('summary', { hasText: 'Sequential' }).click();
+    }
+    await turboItem.click();
     await page.waitForTimeout(500);
-  
+
     // Wait for it to disappear (update in progress)
     await expect(plotContainer).toBeHidden({ timeout: 5000 }).catch(() => {
     });

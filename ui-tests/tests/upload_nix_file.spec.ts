@@ -1,20 +1,7 @@
 import { test, expect, Page } from '@playwright/test';
+import { ensureElephantLabActive, expandAllContainers, expectTreeRowVisible, openElephantLab, selectTreeRow, treeRow, SELECTED } from './helpers';
 import path from 'path';
 import fs from 'fs';
-
-// Helper to reliably bring Elephant Lab back to the front if the Debugger steals focus
-async function ensureElephantLabActive(page: Page) {
-  const elephantLabTab = page.getByRole('tab', { name: 'Elephant Lab', exact: true });
-  const rightPanel = page.locator('#elephant-lab-right-panel');
-
-  await expect(async () => {
-    if (await elephantLabTab.getAttribute('aria-selected') !== 'true') {
-      await elephantLabTab.click();
-    }
-    await expect(elephantLabTab).toHaveAttribute('aria-selected', 'true', { timeout: 1000 });
-    await expect(rightPanel).not.toHaveClass(/lm-mod-hidden/, { timeout: 1000 });
-  }).toPass({ timeout: 10000 });
-}
 
 test.describe.serial('Elephant Lab: Upload and Load .nix File', () => {
   // Global timeout
@@ -80,17 +67,7 @@ test.describe.serial('Elephant Lab: Upload and Load .nix File', () => {
     await page.waitForSelector('.jp-Notebook-cell', { timeout: 20000 });
 
     // Step 1: Activate Elephant Lab Sidebar
-    await page.evaluate(async () => {
-      const commands = window.jupyterapp.commands.listCommands();
-      const cmdId = commands.find(id => id.toLowerCase().includes('elephant-lab'));
-      if (cmdId) await window.jupyterapp.commands.execute(cmdId);
-    });
-
-    const elephantLabTab = page.locator('.lm-TabBar-tab').filter({ hasText: 'Elephant Lab' });
-    if (await elephantLabTab.getAttribute('aria-selected') !== 'true') {
-      await elephantLabTab.click();
-    }
-    await expect(elephantLabTab).toHaveAttribute('aria-selected', 'true', { timeout: 15000 });
+    await openElephantLab(page);
 
     // Step 2: Use Load Button & File Dialog
     await page.locator('button[title="Create a neoIO for given Path"]').click();
@@ -122,8 +99,8 @@ test.describe.serial('Elephant Lab: Upload and Load .nix File', () => {
       await expect(rightPanel).toContainText('TestBlock', { timeout: 5000 });
     }).toPass({ timeout: 120000 }); 
     
-    const treeNode = rightPanel.locator('[role="treeitem"]', { hasText: 'TestBlock' }).first();
-    await treeNode.waitFor({ state: 'attached' });
+    await expectTreeRowVisible(page, treeRow(page, 'TestBlock').first());
+    await expandAllContainers(page);
   });
 
   test.afterAll(async () => {
@@ -134,7 +111,7 @@ test.describe.serial('Elephant Lab: Upload and Load .nix File', () => {
   // --- TEST 1: Verify Tree ---
   test('should display TestBlock in the Neo Tree', async () => {
     await ensureElephantLabActive(page);
-    const treeNode = page.locator('#elephant-lab-right-panel [role="treeitem"]', { hasText: 'TestBlock' }).first();    
+    const treeNode = treeRow(page, 'TestBlock').first();    
     await expect(treeNode).toContainText('TestBlock');
     await treeNode.highlight();
   });
@@ -144,12 +121,16 @@ test.describe.serial('Elephant Lab: Upload and Load .nix File', () => {
     await ensureElephantLabActive(page);
 
     // 1. Select the "TestBlock" node in the tree
-    const treeNode = page.locator('#elephant-lab-right-panel [role="treeitem"]', { hasText: 'TestBlock' }).first();
-    await treeNode.click({ force: true });    
+    const treeNode = treeRow(page, 'TestBlock').first();
+    await selectTreeRow(page, treeNode);
     await ensureElephantLabActive(page);
     // 2. Click the Insert button
     const insertButton = page.locator('button[title="Insert selected neo objects into current notebook"]');
     await insertButton.click();
+
+    // Wait for the generated code to land in the first cell
+    const firstCellEditor = page.locator('.jp-Notebook-cell').first().locator('.jp-InputArea-editor');
+    await expect(firstCellEditor).not.toHaveText(/^\s*$/, { timeout: 20000 });
 
     // 3. Ensure the kernel is ready
     await expect(page.getByRole('button', { name: /Python 3.*Idle/ })).toBeVisible({ timeout: 20000 });
@@ -176,26 +157,24 @@ test.describe.serial('Elephant Lab: Upload and Load .nix File', () => {
   test('should display correct information in the Details tab for TestBlock', async () => {
     await ensureElephantLabActive(page);
 
-    // 1. Select the "TestBlock" node in the tree
-    const treeNode = page.locator('#elephant-lab-right-panel [role="treeitem"]', { hasText: 'TestBlock' }).first();
-    await treeNode.click(); 
-
-    // 2. Switch to the Details tab
+    const treeNode = treeRow(page, 'TestBlock').first();
     const detailsTabLabel = page.locator('#elephant-lab-right-panel .lm-TabBar-tabLabel', { hasText: 'Details' }).first();
-    await detailsTabLabel.click();
-
-    // 3. Verify the details text
     const rightPanel = page.locator('#elephant-lab-right-panel');
-    
-    // Wait for the panel to update with Block details
-    await expect(rightPanel).toContainText('TestBlock (Block)', { timeout: 10000 });
+
+    // 1. Select the "TestBlock" node, switch to Details and wait for the Block details.
+    // Retried, because the tree may still be re-rendering after the previous test's cell execution.
+    await expect(async () => {
+      await selectTreeRow(page, treeNode);
+      await detailsTabLabel.click();
+      await expect(rightPanel).toContainText(/Type:\s*Block/, { timeout: 5000 });
+    }).toPass({ timeout: 30000 });
     
     // Assert the expected properties for the Block
-    await expect(rightPanel).toContainText('Block with 1 segments');
-    await expect(rightPanel).toContainText('Name: TestBlock');
+    await expect(rightPanel).toContainText(/Contents:\s*1 segments/);
+    await expect(rightPanel).toContainText(/Name:\s*TestBlock/);
 
-    await expect(rightPanel).toContainText('Annotations:');
-    await expect(rightPanel).toContainText('nix_name: neo.block.');
+    await expect(rightPanel).toContainText('Annotations');
+    await expect(rightPanel).toContainText(/nix_name:\s*neo\.block\./);
   });
 
 test('should display correct information in the Details tab for SpikeTrain', async () => { 
@@ -207,18 +186,10 @@ test('should display correct information in the Details tab for SpikeTrain', asy
   }
     // Theoretically for the current test.nix file not needed but with other example files
 
-  const expandButton = page.locator('[title="Expand all containers"]');
-  if (await expandButton.isVisible()) {
-    await expandButton.click();
-  }
-
-  // Wait for the tree to stabilize
-  await page.waitForTimeout(500);
+  await expandAllContainers(page);
 
   // 1. Select the "SpikeTrain" node in the tree
-  const spikeTrainNode = page.locator('#elephant-lab-right-panel')
-                             .locator('[role="treeitem"]', { hasText: 'my spiketrain' })
-                             .first();
+  const spikeTrainNode = treeRow(page, 'my spiketrain').first();
   
   // Wait and click with automatic retries
   await expect(async () => {
@@ -226,7 +197,7 @@ test('should display correct information in the Details tab for SpikeTrain', asy
     await spikeTrainNode.click({ timeout: 3000 });
   }).toPass({ timeout: 10000 });
 
-  await expect(spikeTrainNode).toHaveAttribute('aria-selected', 'true', { timeout: 5000 });
+  await expect(spikeTrainNode).toHaveClass(SELECTED, { timeout: 5000 });
   
   await page.waitForTimeout(500);
   
@@ -238,19 +209,19 @@ test('should display correct information in the Details tab for SpikeTrain', asy
     if (await detailsTabLabel.getAttribute('aria-selected') !== 'true') {
       await detailsTabLabel.click();
     }
-    await expect(detailsPanel).toContainText('Time Range: 0.0 s to 4.0 s', { timeout: 5000 });
+    await expect(detailsPanel).toContainText(/Spikes:\s*3/, { timeout: 5000 });
+    await expect(detailsPanel).toContainText(/t_start:\s*0\.0 s/, { timeout: 1000 });
+    await expect(detailsPanel).toContainText(/t_stop:\s*4\.0 s/, { timeout: 1000 });
     // Assert the rest of the properties
-    await expect(detailsPanel).toContainText('Annotations:', { timeout: 1000 });    
+    await expect(detailsPanel).toContainText('Annotations', { timeout: 1000 });
     await expect(detailsPanel).toContainText(/id['":\s]+Unit 1/, { timeout: 1000 });
     await expect(detailsPanel).toContainText(/channel_id['":\s]+1/, { timeout: 1000 });
     await expect(detailsPanel).toContainText(/unit_id['":\s]+0/, { timeout: 1000 });
     await expect(detailsPanel).toContainText(/unit_tag['":\s]+unclassified/, { timeout: 1000 });
     // Check the table headers and values
     await expect(detailsPanel).toContainText('Index (3 spikes)', { timeout: 1000 });
-    await expect(detailsPanel).toContainText('Time (in s, float64)', { timeout: 1000 });
-    await expect(detailsPanel).toContainText('0                | 1.0000 s', { timeout: 1000 });
-    await expect(detailsPanel).toContainText('1                | 2.0000 s', { timeout: 1000 });
-    await expect(detailsPanel).toContainText('2                | 3.0000 s', { timeout: 1000 });
+    await expect(detailsPanel).toContainText('Time (s)', { timeout: 1000 });
+    await expect(detailsPanel).toContainText(/0\s*1\.0000\s*1\s*2\.0000\s*2\s*3\.0000/, { timeout: 1000 });
   }).toPass({ timeout: 15000 });    
 });
 
@@ -262,16 +233,14 @@ test('should display correct information in the Details tab for SpikeTrain', asy
   }
 
   // 1. Select the "SpikeTrain" node with retry logic
-  const spikeTrainNode = page.locator('#elephant-lab-right-panel')
-                             .locator('[role="treeitem"]', { hasText: 'my spiketrain' })
-                             .first();
+  const spikeTrainNode = treeRow(page, 'my spiketrain').first();
   
   await expect(async () => {
     await spikeTrainNode.waitFor({ state: 'visible', timeout: 3000 });
     await spikeTrainNode.click({ timeout: 3000 });
   }).toPass({ timeout: 10000 });
 
-  await expect(spikeTrainNode).toHaveAttribute('aria-selected', 'true', { timeout: 5000 });
+  await expect(spikeTrainNode).toHaveClass(SELECTED, { timeout: 5000 });
 
   // 2. Switch to the Explore tab
   const rightPanel = page.locator('#elephant-lab-right-panel');
@@ -318,7 +287,7 @@ test('should display correct information in the Details tab for SpikeTrain', asy
         // For SpikeTrain, we expect scatter plot data
         firstTraceHasX: node.data?.[0]?.x !== undefined,
         firstTraceHasY: node.data?.[0]?.y !== undefined,
-        firstTraceXLength: node.data?.[0]?.x?.length || 0,
+        firstTraceXLength: (node._fullData?.[0] ?? node.data?.[0])?.x?.length || 0,
       };
     }
     // Fallback: check for SVG/Canvas rendering (Plotly always renders to one of these)
@@ -375,9 +344,7 @@ test('should display correct information in the Details tab for SpikeTrain', asy
   const initialNotebookName = initialButtonText?.trim() || 'Unknown';
 
   // Verify that the SpikeTrain node from the first notebook is visible before switching
-  const spikeTrainNode = page.locator('#elephant-lab-right-panel')
-                             .locator('[role="treeitem"]', { hasText: 'my spiketrain' })
-                             .first();
+  const spikeTrainNode = treeRow(page, 'my spiketrain').first();
   
   await expect(async () => {
     await expect(spikeTrainNode).toBeVisible({ timeout: 3000 });
@@ -425,7 +392,7 @@ test('should display correct information in the Details tab for SpikeTrain', asy
 
   // Verify that the notebook switched and the SpikeTrain node 
   // from the other notebooks kernel is not visible anymore
-  expect(spikeTrainNode).not.toBeVisible( { timeout: 5000 });
+  await expect(spikeTrainNode).not.toBeVisible({ timeout: 5000 });
 
   // 5. Verify the Elephant Lab panel switched to the new notebook's data
   // (Optional: you could verify the Neo Tree updated or notebook content changed)

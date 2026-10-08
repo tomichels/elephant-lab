@@ -110,7 +110,16 @@ You will also need to remove the symlink created by `jupyter labextension develo
 
 ## Testing
 
+Python unit tests use [pytest](https://pytest.org/):
+
+```bash
+pip install -e ".[test]"
+pytest tests --cov=elephant_lab
+```
+
 End-to-end tests use [Playwright](https://playwright.dev/). See [ui-tests/README.md](https://github.com/INM-6/elephant-lab/blob/master/ui-tests/README.md) for details.
+
+All tests run automatically via [GitHub Actions](https://github.com/INM-6/elephant-lab/actions) on every pull request and on pushes to `master` (see [.github/workflows/build.yml](https://github.com/INM-6/elephant-lab/blob/master/.github/workflows/build.yml)).
 
 ## Contributing
 

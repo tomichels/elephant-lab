@@ -1073,6 +1073,54 @@ class ElephantLabExtension {
 		}
 
 
+		const sortNeoTreeButton = document.createElement('label');
+		sortNeoTreeButton.innerHTML = '<i class="fa fa-sort" aria-hidden="true"></i> ';
+		sortNeoTreeButton.title = 'Sort top-level objects of the neo tree';
+		sortNeoTreeButton.className = 'workflow-button workflow-button-io';
+		const sortNeoTreeSelect = document.createElement('select');
+		sortNeoTreeSelect.className = 'neo-tree-sort-select';
+		([
+			['alphabetical', 'Alphabetical'],
+			['creation', 'Creation Date'],
+			['datatype', 'Data type'],
+		] as const).forEach(([value, text]) => {
+			const option = document.createElement('option');
+			option.value = value;
+			option.textContent = text;
+			sortNeoTreeSelect.appendChild(option);
+		});
+		sortNeoTreeButton.appendChild(sortNeoTreeSelect);
+
+		const sortIcons: Record<string, string> = {
+			alphabetical: 'fa-sort-alpha-asc',
+			creation: 'fa-calendar',
+			datatype: 'fa-cube',
+		};
+		const sortIcon = sortNeoTreeButton.querySelector('i')!;
+		const updateSortIcon = () => {
+			sortIcon.className = `fa ${sortIcons[sortNeoTreeSelect.value]}`;
+		};
+		updateSortIcon();
+
+		let sortDescending = false;
+		const sortDirectionButton = document.createElement('button');
+		sortDirectionButton.title = 'Toggle ascending/descending';
+		sortDirectionButton.className = 'workflow-button workflow-button-io';
+		const updateSortDirection = () => {
+			sortDirectionButton.innerHTML = `<i class="fa fa-sort-amount-${sortDescending ? 'desc' : 'asc'}" aria-hidden="true"></i>`;
+		};
+		updateSortDirection();
+
+		sortNeoTreeSelect.onchange = () => {
+			updateSortIcon();
+			this.neo_tree_sort(sortNeoTreeSelect.value, sortDescending, session);
+		};
+		sortDirectionButton.onclick = () => {
+			sortDescending = !sortDescending;
+			updateSortDirection();
+			this.neo_tree_sort(sortNeoTreeSelect.value, sortDescending, session);
+		};
+
 		// Annotation filter row
 		const annoFilterRow = document.createElement('div');
 		annoFilterRow.style.cssText = 'display:flex;gap:4px;align-items:center;padding-top:6px;width:100%;';
@@ -1124,6 +1172,8 @@ class ElephantLabExtension {
 		filterContainer.appendChild(loadNeoFileButton);
 		filterContainer.appendChild(saveNeoObjectsButton);
 		filterContainer.appendChild(insertCodeButton);
+		filterContainer.appendChild(sortNeoTreeButton);
+		filterContainer.appendChild(sortDirectionButton);
 
 		tree_widget.node.prepend(filterContainer);
 	}
@@ -1516,6 +1566,11 @@ class ElephantLabExtension {
 
 	public neo_tree_expand(checked: boolean, session: ISessionContext) {
 		let code = getPythonCode(PythonCodeKey.ExpandNeoTree, checked);
+		this.kernelBridge!.executeCode(code, this.outarea_neo_tree!, false);
+	}
+
+	public neo_tree_sort(sortMode: string, descending: boolean, session: ISessionContext) {
+		let code = getPythonCode(PythonCodeKey.SetNeoTreeSortMode, sortMode, descending);
 		this.kernelBridge!.executeCode(code, this.outarea_neo_tree!, false);
 	}
 }; // end of ElephantLabExtension class

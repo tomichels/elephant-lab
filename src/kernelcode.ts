@@ -80,6 +80,10 @@ function expandNeoTree(checked: boolean): string {
 	return `elephant_lab_entity.elephant_lab_tree.expand_neo_tree(${pythonValue(checked)})`
 }
 
+function setNeoTreeSortMode(sortMode: string, descending: boolean): string {
+	return `elephant_lab_entity.elephant_lab_tree.set_sort_mode(${pythonValue(sortMode)}, ${pythonValue(descending)})`
+}
+
 function handleTreeSelection(nodeId: string, multiSelectPy: string, selectChildrenPy: string = 'True'): string {
 	return `elephant_lab_entity.elephant_lab_tree.handle_selection('${nodeId}', ${multiSelectPy}, ${selectChildrenPy})`;
 }
@@ -112,6 +116,7 @@ export enum PythonCodeKey {
 	ToggleNeoTreeFilter = 'toggleNeoTreeFilter',
 	SetNeoTreeFilter = 'setNeoTreeFilter',
 	ExpandNeoTree = 'expandNeoTree',
+	SetNeoTreeSortMode = 'setNeoTreeSortMode',
 	GetIOClass = 'getIOClass',
 	HandleTreeSelection = 'handleTreeSelection',
 	HandleSelectionRange = 'handleSelectionRange',
@@ -135,6 +140,7 @@ const pythonCode: Record<PythonCodeKey, string | ((...args: any[]) => string)> =
 	[PythonCodeKey.ToggleNeoTreeFilter]: (...args: any[]) => toggleNeoTreeFilter(args[0]),
 	[PythonCodeKey.SetNeoTreeFilter]: (...args: any[]) => setNeoTreeFilter(args[0]),
 	[PythonCodeKey.ExpandNeoTree]: (...args: any[]) => expandNeoTree(args[0]),
+	[PythonCodeKey.SetNeoTreeSortMode]: (...args: any[]) => setNeoTreeSortMode(args[0], args[1]),
 	[PythonCodeKey.GetIOClass]: (...args: any[]) => getNeoIOClass(args[0]),
 	[PythonCodeKey.HandleTreeSelection]: (...args: any[]) => handleTreeSelection(args[0], args[1], args[2]),
 	[PythonCodeKey.HandleSelectionRange]: (...args: any[]) => handleSelectionRange(args[0], args[1]),

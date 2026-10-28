@@ -1249,9 +1249,9 @@ class ElephantLabExtension {
 		filterContainer.appendChild(loadNeoFileButton);
 		filterContainer.appendChild(saveNeoObjectsButton);
 		filterContainer.appendChild(insertCodeButton);
-		filterContainer.appendChild(sortNeoTreeButton);
-		filterContainer.appendChild(sortDirectionButton);
 		filterContainer.appendChild(createGroupButton);
+		filterContainer.appendChild(sortNeoTreeButton);
+    filterContainer.appendChild(sortDirectionButton);
 
 		tree_widget.node.prepend(filterContainer);
 	}

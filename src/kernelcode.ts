@@ -72,6 +72,10 @@ function toggleNeoTreeFilter(checkbox_id: string): string {
 	return `elephant_lab_entity.elephant_lab_tree.show_neo_obj("${checkbox_id}")`
 }
 
+function ebrainsCall(method: string, args: unknown[]): string {
+	return `import json as elephant_lab_json; elephant_lab_entity.elephant_lab_ebrains.${method}(*elephant_lab_json.loads(${JSON.stringify(JSON.stringify(args))}))`
+}
+
 function expandNeoTree(checked: boolean): string {
 	return `elephant_lab_entity.elephant_lab_tree.expand_neo_tree(${pythonValue(checked)})`
 }
@@ -107,6 +111,10 @@ export enum PythonCodeKey {
 	SaveSelectedNeoObjects = 'saveSelectedNeoObjects',
 	ToggleNeoTreeFilter = 'toggleNeoTreeFilter',
 	ExpandNeoTree = 'expandNeoTree',
+	EbrainsSearch = 'ebrainsSearch',
+	EbrainsListFiles = 'ebrainsListFiles',
+	EbrainsDownloadAndLoad = 'ebrainsDownloadAndLoad',
+	EbrainsAuth = 'ebrainsAuth',
 	GetIOClass = 'getIOClass',
 	HandleTreeSelection = 'handleTreeSelection',
 	HandleSelectionRange = 'handleSelectionRange',
@@ -129,6 +137,10 @@ const pythonCode: Record<PythonCodeKey, string | ((...args: any[]) => string)> =
 	[PythonCodeKey.SaveSelectedNeoObjects]: (...args: any[]) => saveSelectedNeoObjects(args[0]),
 	[PythonCodeKey.ToggleNeoTreeFilter]: (...args: any[]) => toggleNeoTreeFilter(args[0]),
 	[PythonCodeKey.ExpandNeoTree]: (...args: any[]) => expandNeoTree(args[0]),
+	[PythonCodeKey.EbrainsSearch]: (...args: any[]) => ebrainsCall('search', args),
+	[PythonCodeKey.EbrainsListFiles]: (...args: any[]) => ebrainsCall('list_files', args),
+	[PythonCodeKey.EbrainsDownloadAndLoad]: (...args: any[]) => ebrainsCall('download_and_load', args),
+	[PythonCodeKey.EbrainsAuth]: (...args: any[]) => ebrainsCall('auth', args),
 	[PythonCodeKey.GetIOClass]: (...args: any[]) => getNeoIOClass(args[0]),
 	[PythonCodeKey.HandleTreeSelection]: (...args: any[]) => handleTreeSelection(args[0], args[1], args[2]),
 	[PythonCodeKey.HandleSelectionRange]: (...args: any[]) => handleSelectionRange(args[0], args[1]),

@@ -1,0 +1,197 @@
+/* EBRAINS Knowledge Graph browser (dialog body, see src/ebrains_kg_browser.ts) */
+
+.jp-Dialog-content.jp-EbrainsKgBrowser-dialog {
+  max-height: min(800px, 92vh);
+}
+
+/* Several elements below set display, which would override the hidden attribute */
+.jp-EbrainsKgBrowser [hidden] {
+  display: none !important;
+}
+
+.jp-EbrainsKgBrowser {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: min(720px, 80vw);
+  height: min(620px, calc(92vh - 140px));
+  font-size: var(--jp-ui-font-size1);
+}
+
+.jp-EbrainsKgBrowser-searchRow,
+.jp-EbrainsKgBrowser-filterRow {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.jp-EbrainsKgBrowser-searchRow .jp-input,
+.jp-EbrainsKgBrowser-filterRow .jp-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.jp-EbrainsKgBrowser-filterRow label {
+  white-space: nowrap;
+  color: var(--jp-ui-font-color1);
+}
+
+.jp-EbrainsKgBrowser-status {
+  color: var(--jp-ui-font-color2);
+  min-height: 1.4em;
+}
+
+.jp-EbrainsKgBrowser-status.jp-mod-error,
+.jp-EbrainsKgBrowser-authMessage.jp-mod-error {
+  color: var(--jp-error-color1);
+}
+
+.jp-EbrainsKgBrowser-dataset {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.jp-EbrainsKgBrowser-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  border: var(--jp-border-width) solid var(--jp-border-color2);
+  border-radius: 2px;
+}
+
+/* Keeps the file list visible next to a long description or many companions */
+.jp-EbrainsKgBrowser-files {
+  min-height: 8em;
+}
+
+.jp-EbrainsKgBrowser-item {
+  padding: 6px 8px;
+  cursor: pointer;
+  border-bottom: var(--jp-border-width) solid var(--jp-border-color3);
+}
+
+.jp-EbrainsKgBrowser-item:hover,
+.jp-EbrainsKgBrowser-fileRow:hover {
+  background: var(--jp-layout-color2);
+}
+
+.jp-EbrainsKgBrowser-itemTitle,
+.jp-EbrainsKgBrowser-datasetTitle {
+  font-weight: 600;
+  color: var(--jp-ui-font-color0);
+}
+
+.jp-EbrainsKgBrowser-datasetTitle {
+  font-size: var(--jp-ui-font-size2);
+}
+
+.jp-EbrainsKgBrowser-meta,
+.jp-EbrainsKgBrowser-note {
+  color: var(--jp-ui-font-color2);
+  font-size: var(--jp-ui-font-size0);
+}
+
+.jp-EbrainsKgBrowser-meta a,
+.jp-EbrainsKgBrowser-authMessage a {
+  color: var(--jp-content-link-color);
+}
+
+.jp-EbrainsKgBrowser-badge {
+  margin-left: 6px;
+  padding: 0 4px;
+  border-radius: 2px;
+  background: var(--jp-warn-color3);
+  color: var(--jp-warn-color0);
+}
+
+.jp-EbrainsKgBrowser-description {
+  color: var(--jp-ui-font-color1);
+  cursor: pointer;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.jp-EbrainsKgBrowser-description.jp-mod-expanded {
+  display: block;
+  max-height: 10em;
+  overflow-y: auto;
+}
+
+.jp-EbrainsKgBrowser-back,
+.jp-EbrainsKgBrowser-more {
+  align-self: flex-start;
+}
+
+.jp-EbrainsKgBrowser-more {
+  margin: 6px 8px;
+}
+
+.jp-EbrainsKgBrowser-fileRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.jp-EbrainsKgBrowser-fileName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--jp-code-font-family);
+}
+
+.jp-EbrainsKgBrowser-size {
+  color: var(--jp-ui-font-color2);
+  white-space: nowrap;
+}
+
+.jp-EbrainsKgBrowser-companions {
+  flex-shrink: 0;
+  max-height: 6.5em;
+  overflow-y: auto;
+}
+
+.jp-EbrainsKgBrowser-toggleShown {
+  white-space: nowrap;
+}
+
+.jp-EbrainsKgBrowser-summary {
+  flex-shrink: 0;
+  color: var(--jp-ui-font-color1);
+  font-weight: 600;
+}
+
+.jp-EbrainsKgBrowser-backend {
+  flex-shrink: 0;
+}
+
+.jp-EbrainsKgBrowser-auth {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 2px;
+  background: var(--jp-layout-color2);
+}
+
+.jp-EbrainsKgBrowser-auth .jp-input {
+  flex: 1;
+  min-width: 12em;
+}
+
+.jp-EbrainsKgBrowser-authMessage {
+  flex: 1;
+  min-width: 12em;
+  color: var(--jp-ui-font-color1);
+}

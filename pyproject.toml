@@ -44,6 +44,10 @@ test = [
     "pytest-cov",
     "matplotlib"
 ]
+# Optional "KG API (login)" backend of the EBRAINS Knowledge Graph browser
+ebrains = [
+    "fairgraph"
+]
 
 [tool.hatch.version]
 source = "nodejs"

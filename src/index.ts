@@ -10,7 +10,8 @@ import {
 	ISessionContext,
 	WidgetTracker,
 	showDialog,
-	Dialog
+	Dialog,
+	Notification
 } from '@jupyterlab/apputils';
 
 import {
@@ -55,7 +56,8 @@ import { ISettingRegistry } from '@jupyterlab/settingregistry';
 import {
 	Panel,
 	Widget,
-	DockPanel
+	DockPanel,
+	Menu
 } from '@lumino/widgets';
 import { MessageLoop } from '@lumino/messaging';
 import { DisposableDelegate, IDisposable } from '@lumino/disposable';
@@ -71,6 +73,7 @@ import '../style/index.css';
 import '../style/base.css'
 import '../style/sidebar.css';
 import { KernelBridge } from './kernel_bridge';
+import { EbrainsKgBrowser, IEbrainsSelection } from './ebrains_kg_browser';
 import { PlotlyFrontend } from './plot';
 import { PlotSettings } from './plot_settings';
 import { createOutputArea } from './output_functionalities';
@@ -102,6 +105,8 @@ class ElephantLabExtension {
 	private rendermime: IRenderMimeRegistry | null = null;
 	private kernelBridge: KernelBridge | null;
 	private topBar: Widget | null = null;
+	private loadMenu: Menu | null = null;
+	private loadMenuCommands: IDisposable[] = [];
 	// @ts-ignore
 	private plotlyFrontend: PlotlyFrontend | null;
 	private _lastClickedNode: string | null = null;
@@ -750,6 +755,169 @@ class ElephantLabExtension {
 		}
 	}
 
+	/** Picks a file in the JupyterLab file browser and loads it with a chosen or detected neo IO class. */
+	private loadLocalNeoFile(session: ISessionContext) {
+		const dialogPromise = FileDialog.getOpenFiles({
+			manager: this.docManager
+		});
+
+		// Prevent double-click from triggering JupyterLab's file-open handler
+		let dialogNode: Element | null = null;
+		const stopDblClick = (e: Event) => {
+			const item = (e.target as Element).closest('.jp-DirListing-item');
+			// Allow double-click on folders so navigation still works
+			if (item?.getAttribute('data-isdir') === 'true') {
+				return;
+			}
+			e.stopImmediatePropagation();
+			e.stopPropagation();
+			const acceptBtn = dialogNode?.querySelector('.jp-Dialog-button.jp-mod-accept') as HTMLElement | null;
+			acceptBtn?.click();
+		};
+		setTimeout(() => {
+			dialogNode = document.querySelector('.jp-Dialog');
+			if (dialogNode) {
+				dialogNode.addEventListener('dblclick', stopDblClick, true);
+			}
+		}, 0);
+
+		dialogPromise.then(result => {
+			if (dialogNode) {
+				dialogNode.removeEventListener('dblclick', stopDblClick, true);
+			}
+			if (result.button.accept && result.value && result.value.length > 0) {
+				const selectedFile = result.value[0];
+				let filePath = selectedFile.path;
+				const slashCount = (session.path.match(/\//g) || []).length;
+				if (slashCount !== 0) {
+					const prefix = '../'.repeat(slashCount);
+					filePath = prefix + filePath;
+				}
+
+				const body = document.createElement('div');
+				const input = document.createElement('input');
+				input.className = 'jp-input';
+				input.placeholder = 'e.g. Spike2IO';
+				body.appendChild(input);
+
+				showDialog({
+					title: 'Enter neo IO class',
+					body: new Widget({ node: body }),
+					buttons: [
+						Dialog.cancelButton(),
+						Dialog.okButton({ label: 'OK' }),
+						Dialog.createButton({ label: 'Automatic' })
+					],
+					hasClose: true
+				}).then(async dialogResult => {
+					let ioClass: string | null = null;
+					if (dialogResult.button.label === 'OK') {
+						ioClass = input.value;
+					} else if (dialogResult.button.label === 'Automatic') {
+						ioClass = await this.kernelBridge!.getNeoIOClass(filePath);
+					}
+
+					if (ioClass !== null) {
+						const varsResult = await this.kernelBridge!.executeCode(PythonCodeKey.GetVars, this.outarea_neo_tree!, false);
+						let allVars: string[] = [];
+						if (varsResult && varsResult.outputs.length > 0) {
+							const output = varsResult.outputs[0];
+							if (output.output_type === 'stream' && output.name === 'stdout') {
+								try {
+									allVars = JSON.parse(output.text);
+								} catch (e) {
+									console.error("Failed to parse kernel variables", e);
+								}
+							}
+						}
+
+						let counter = 0;
+						let varName = `loaded_data_${counter}`;
+						while (allVars.includes(varName)) {
+							counter++;
+							varName = `loaded_data_${counter}`;
+						}
+
+						let code = getPythonCode(PythonCodeKey.SetVarName, ioClass, filePath, varName);
+						await this.kernelBridge!.executeCode(code, this.outarea_neo_tree!, false);
+						await this.kernelBridge!.executeCode(PythonCodeKey.UpdateTree, this.outarea_neo_tree!, false);
+					} else if (dialogResult.button.label === 'Automatic') {
+						showDialog({
+							title: 'Error',
+							body: 'Could not automatically determine IO class.',
+							buttons: [Dialog.okButton()]
+						});
+					}
+				});
+			}
+		});
+	}
+
+	/** Searches the EBRAINS Knowledge Graph in a dialog, then downloads the selected files and loads them with neo. */
+	private async loadFromEbrains() {
+		if (!this.kernelBridge) {
+			return;
+		}
+		const kernelBridge = this.kernelBridge;
+		const dialogResult = await showDialog({
+			title: 'Load from EBRAINS Knowledge Graph',
+			body: new EbrainsKgBrowser(kernelBridge),
+			buttons: [Dialog.cancelButton(), Dialog.okButton({ label: 'Download & load' })],
+			hasClose: true
+		});
+		const selection = dialogResult.value as IEbrainsSelection | null;
+		if (!dialogResult.button.accept) {
+			return;
+		}
+		if (!selection) {
+			Notification.warning('No files selected.', { autoClose: 5000 });
+			return;
+		}
+
+		const notificationId = Notification.emit('Downloading from EBRAINS…', 'in-progress', {
+			autoClose: false,
+			progress: 0,
+			actions: [{ label: 'Cancel', callback: () => void kernelBridge.interruptKernel() }]
+		});
+		const onProgress = (progress: any) => {
+			const state = progress.skipped ? 'already downloaded' : `${Math.round((progress.fraction ?? 0) * 100)}%`;
+			Notification.update({
+				id: notificationId,
+				message: `Downloading ${progress.file} (${progress.index}/${progress.count}): ${state}`,
+				type: 'in-progress',
+				progress: (progress.index - 1 + (progress.fraction ?? 0)) / progress.count
+			});
+		};
+		const code = getPythonCode(PythonCodeKey.EbrainsDownloadAndLoad, selection.dataset.folder, selection.files);
+		const result = await kernelBridge.executeCode(code, null, false, true, null, onProgress);
+		const data = result?.resultKey ? JSON.parse(result.resultKey) : { error: 'No response from the kernel.' };
+		if (data.error) {
+			Notification.update({ id: notificationId, message: data.error, type: 'error', autoClose: false, actions: [] });
+			return;
+		}
+
+		const loaded: { variable: string }[] = data.loaded;
+		const errors: { path: string; error: string }[] = data.errors;
+		errors.forEach(e => console.error(e.error));
+		const messages = [];
+		if (loaded.length > 0) {
+			messages.push(`Loaded ${loaded.map(l => l.variable).join(', ')}.`);
+		}
+		if (errors.length > 0) {
+			messages.push(`neo could not read ${errors.map(e => e.path.split('/').pop()).join(', ')} (see browser console).`);
+		}
+		Notification.update({
+			id: notificationId,
+			message: messages.join(' '),
+			type: errors.length === 0 ? 'success' : loaded.length === 0 ? 'error' : 'warning',
+			autoClose: errors.length === 0 ? 5000 : false,
+			actions: []
+		});
+		if (loaded.length > 0) {
+			await kernelBridge.executeCode(PythonCodeKey.UpdateTree, this.outarea_neo_tree!, false);
+		}
+	}
+
 	public create_tree_filter(session: ISessionContext, tree_widget: Panel) {
 		const neoObjFilterGroups: [string, string][][] = [
 			[
@@ -837,105 +1005,30 @@ class ElephantLabExtension {
 		flexBreak.style.height = "0";
 		filterContainer.appendChild(flexBreak);
 
+		this.loadMenuCommands.forEach(command => command.dispose());
+		this.loadMenuCommands = [
+			this.app.commands.addCommand('elephant-lab:load-local-file', {
+				label: 'Local file…',
+				iconClass: 'fa fa-folder-open',
+				execute: () => this.loadLocalNeoFile(session)
+			}),
+			this.app.commands.addCommand('elephant-lab:load-ebrains-kg', {
+				label: 'EBRAINS Knowledge Graph…',
+				iconClass: 'fa fa-globe',
+				execute: () => this.loadFromEbrains()
+			})
+		];
+		this.loadMenu = new Menu({ commands: this.app.commands });
+		this.loadMenu.addItem({ command: 'elephant-lab:load-local-file' });
+		this.loadMenu.addItem({ command: 'elephant-lab:load-ebrains-kg' });
+
 		const loadNeoFileButton = document.createElement('button');
 		loadNeoFileButton.innerHTML = '<i class="fa fa-file-import" aria-hidden="true"></i> Load';
-		loadNeoFileButton.title = 'Create a neoIO for given Path';
+		loadNeoFileButton.title = 'Load a neo file from disk or from the EBRAINS Knowledge Graph';
 		loadNeoFileButton.className = 'workflow-button workflow-button-io';
 		loadNeoFileButton.onclick = () => {
-			const dialogPromise = FileDialog.getOpenFiles({
-				manager: this.docManager
-			});
-
-			// Prevent double-click from triggering JupyterLab's file-open handler
-			let dialogNode: Element | null = null;
-			const stopDblClick = (e: Event) => {
-				const item = (e.target as Element).closest('.jp-DirListing-item');
-				// Allow double-click on folders so navigation still works
-				if (item?.getAttribute('data-isdir') === 'true') {
-					return;
-				}
-				e.stopImmediatePropagation();
-				e.stopPropagation();
-				const acceptBtn = dialogNode?.querySelector('.jp-Dialog-button.jp-mod-accept') as HTMLElement | null;
-				acceptBtn?.click();
-			};
-			setTimeout(() => {
-				dialogNode = document.querySelector('.jp-Dialog');
-				if (dialogNode) {
-					dialogNode.addEventListener('dblclick', stopDblClick, true);
-				}
-			}, 0);
-
-			dialogPromise.then(result => {
-				if (dialogNode) {
-					dialogNode.removeEventListener('dblclick', stopDblClick, true);
-				}
-				if (result.button.accept && result.value && result.value.length > 0) {
-					const selectedFile = result.value[0];
-					let filePath = selectedFile.path;
-					const slashCount = (session.path.match(/\//g) || []).length;
-					if (slashCount !== 0) {
-						const prefix = '../'.repeat(slashCount);
-						filePath = prefix + filePath;
-					}
-
-					const body = document.createElement('div');
-					const input = document.createElement('input');
-					input.className = 'jp-input';
-					input.placeholder = 'e.g. Spike2IO';
-					body.appendChild(input);
-
-					showDialog({
-						title: 'Enter neo IO class',
-						body: new Widget({ node: body }),
-						buttons: [
-							Dialog.cancelButton(),
-							Dialog.okButton({ label: 'OK' }),
-							Dialog.createButton({ label: 'Automatic' })
-						],
-						hasClose: true
-					}).then(async dialogResult => {
-						let ioClass: string | null = null;
-						if (dialogResult.button.label === 'OK') {
-							ioClass = input.value;
-						} else if (dialogResult.button.label === 'Automatic') {
-							ioClass = await this.kernelBridge!.getNeoIOClass(filePath);
-						}
-
-						if (ioClass !== null) {
-							const varsResult = await this.kernelBridge!.executeCode(PythonCodeKey.GetVars, this.outarea_neo_tree!, false);
-							let allVars: string[] = [];
-							if (varsResult && varsResult.outputs.length > 0) {
-								const output = varsResult.outputs[0];
-								if (output.output_type === 'stream' && output.name === 'stdout') {
-									try {
-										allVars = JSON.parse(output.text);
-									} catch (e) {
-										console.error("Failed to parse kernel variables", e);
-									}
-								}
-							}
-
-							let counter = 0;
-							let varName = `loaded_data_${counter}`;
-							while (allVars.includes(varName)) {
-								counter++;
-								varName = `loaded_data_${counter}`;
-							}
-
-							let code = getPythonCode(PythonCodeKey.SetVarName, ioClass, filePath, varName);
-							await this.kernelBridge!.executeCode(code, this.outarea_neo_tree!, false);
-							await this.kernelBridge!.executeCode(PythonCodeKey.UpdateTree, this.outarea_neo_tree!, false);
-						} else if (dialogResult.button.label === 'Automatic') {
-							showDialog({
-								title: 'Error',
-								body: 'Could not automatically determine IO class.',
-								buttons: [Dialog.okButton()]
-							});
-						}
-					});
-				}
-			});
+			const rect = loadNeoFileButton.getBoundingClientRect();
+			this.loadMenu?.open(rect.left, rect.bottom);
 		};
 
 		const saveNeoObjectsButton = document.createElement('button');

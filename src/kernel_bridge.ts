@@ -23,6 +23,11 @@ export class KernelBridge {
         this.session = session;
     }
 
+    /** Interrupts the kernel, e.g. to cancel a long-running download. */
+    public async interruptKernel(): Promise<void> {
+        await this.session?.session?.kernel?.interrupt();
+    }
+
     public async getNeoIOClass(filename: string): Promise<string | null> {
         if (!this.session || !this.session.session) { return null; }
         const code = getPythonCode(PythonCodeKey.GetIOClass, filename);
@@ -46,10 +51,13 @@ export class KernelBridge {
      * @param outputArea The Jupyter OutputArea widget where the execution results will be displayed. If null, the output will be logged.
      * @param showOutput A boolean flag that determines whether to display the output. Defaults to `true`.
      * @param executeCode If true, execute the code as is. If false, wrap it in a print statement.
+     * @param session The session to execute in. Defaults to the bridge's session.
+     * @param onProgress Called with the parsed JSON of every `ELEPHANT_LAB_PROGRESS:` line printed by the code.
+     * @param logCode If false, the code is not written to the browser console (e.g. because it contains a token).
      * @returns A promise that resolves to an IExecutionResult object, containing the result key
      * and an array of output messages. Returns null if the session is not available.
      */
-    public async executeCode(pythonCode: PythonCodeKey | string, outputArea: OutputArea | null = null, showOutput = true, executeCode = true, session: ISessionContext | null = null): Promise<IExecutionResult | null> {
+    public async executeCode(pythonCode: PythonCodeKey | string, outputArea: OutputArea | null = null, showOutput = true, executeCode = true, session: ISessionContext | null = null, onProgress: ((progress: any) => void) | null = null, logCode = true): Promise<IExecutionResult | null> {
         if (!session) {
             session = this.session;
         }
@@ -65,7 +73,9 @@ export class KernelBridge {
         const code = Object.values(PythonCodeKey).includes(pythonCode as PythonCodeKey)
             ? getPythonCode(pythonCode as PythonCodeKey)
             : pythonCode;
-        console.log("Executing code in kernel:", code);
+        if (logCode) {
+            console.log("Executing code in kernel:", code);
+        }
 
         let codeToRun: string;
         if (executeCode) {
@@ -88,7 +98,12 @@ export class KernelBridge {
                     const lines = text.split('\n');
                     const lines_to_print: string[] = [];
                     for (const line of lines) {
-                        if (line.trim().startsWith("ELEPHANT_LAB_RESULT_KEY:")) {
+                        if (line.trim().startsWith("ELEPHANT_LAB_PROGRESS:")) {
+                            if (onProgress) {
+                                try { onProgress(JSON.parse(line.trim().substring("ELEPHANT_LAB_PROGRESS:".length))); }
+                                catch (e) { console.error("Failed to parse progress from kernel:", e, line); }
+                            }
+                        } else if (line.trim().startsWith("ELEPHANT_LAB_RESULT_KEY:")) {
                             if (resultKey === null) {
                                 resultKey = "";
                             }

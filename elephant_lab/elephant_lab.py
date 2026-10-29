@@ -393,9 +393,9 @@ class ElephantLab:
             objects_for_group = []
             skipped = 0
             for node in selected_nodes:
-                if node._id not in self.map_ipytree_node_id_to_neo_obj:
+                if node._id not in self.map_neo_obj_hash_to_neo_obj:
                     continue
-                neo_obj = self.map_ipytree_node_id_to_neo_obj[node._id]
+                neo_obj = self.map_neo_obj_hash_to_neo_obj[node._id]
 
                 is_groupable = type(neo_obj).__name__ in groupable_type_names or isinstance(neo_obj, self.Group)
                 if not is_groupable:
